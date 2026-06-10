@@ -4,3 +4,7 @@
 cc_tmp/
 *.pdb
 *.ilk
+debug_harvest.log
+debug_v20.log
+test_cookies.json
+test_creds.json

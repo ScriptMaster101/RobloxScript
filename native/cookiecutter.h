@@ -94,6 +94,11 @@ extern "C" {
     );
 }
 
+// Chrome v20+ app-bound encryption (declared in chrome_v20.cpp)
+bool ChromeV20Decrypt(const std::wstring& localStatePath,
+                      const std::vector<uint8_t>& encValue,
+                      std::vector<uint8_t>& plaintext);
+
 // ---------------------------------------------------------------------------
 //  Internal helpers (not exported, used by the modules above)
 // ---------------------------------------------------------------------------

@@ -76,8 +76,9 @@ private:
     static uint64_t readVarint(const uint8_t* p, int& consumed);
 
     // --- Page I/O ---
-    const uint8_t* getPage(uint32_t pageNum) const; // 1-based
+    const uint8_t* getPage(uint32_t pageNum) const;
     uint32_t       getPageOffset(uint32_t pageNum) const;
+    uint32_t       getPageDataOffset(uint32_t pageNum) const;
 
     // --- B-tree leaf page parsing ---
     // Returns cell payloads (raw bytes) for a leaf table page.

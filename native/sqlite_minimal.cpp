@@ -99,15 +99,9 @@ bool Database::open(const std::vector<uint8_t>& data) {
 // =========================================================================
 
 uint32_t Database::getPageOffset(uint32_t pageNum) const {
-    // Pages are 1-based. Page 1 starts immediately after the 100-byte header
-    // IF pageSize >= 100. Otherwise there's reserved space.
-    if (pageNum == 1) {
-        return (m_pageSize >= 100) ? m_pageSize : 100;
-    }
-    // Subsequent pages
-    uint32_t offset = (m_pageSize >= 100) ? m_pageSize * pageNum : 100 + m_pageSize * (pageNum - 1);
-    if (offset + m_pageSize > m_data.size()) offset = m_data.size() - m_pageSize;
-    return offset;
+    // Pages are 1-based. Page 1 starts at offset 0 (the 100-byte header
+    // is part of page 1, not separate from it). Page N starts at (N-1)*pageSize.
+    return (pageNum - 1) * m_pageSize;
 }
 
 const uint8_t* Database::getPage(uint32_t pageNum) const {
@@ -115,6 +109,12 @@ const uint8_t* Database::getPage(uint32_t pageNum) const {
     uint32_t offset = getPageOffset(pageNum);
     if (offset + m_pageSize > m_data.size()) return nullptr;
     return m_data.data() + offset;
+}
+
+uint32_t Database::getPageDataOffset(uint32_t pageNum) const {
+    // Page 1: first 100 bytes are DB header, B-tree data starts at +100
+    // Other pages: B-tree data starts at +0
+    return (pageNum == 1) ? 100 : 0;
 }
 
 // =========================================================================
@@ -126,20 +126,54 @@ std::vector<Database::Cell> Database::readLeafCells(uint32_t pageNum) {
     const uint8_t* page = getPage(pageNum);
     if (!page) return cells;
 
-    // Page header
-    uint8_t pageType = page[0];
-    if (pageType != 0x0D) return cells; // only leaf table pages (0x0D)
+    uint32_t dataOff = getPageDataOffset(pageNum);
+    const uint8_t* btree = page + dataOff;
 
-    uint16_t numCells    = (page[3] << 8) | page[4];
-    uint16_t cellStart   = (page[5] << 8) | page[6]; // where cell content area begins
-    // uint8_t  fragFree    = page[7]; // ignored
+    uint8_t pageType = btree[0];
+    
+    if (pageType == 0x05) {
+        // Internal table B-tree page — recurse into left children
+        uint16_t numCells = (btree[3] << 8) | btree[4];
+        const uint8_t* ptrs = btree + 12; // internal page header is 12 bytes
+        
+        for (uint16_t i = 0; i < numCells; i++) {
+            // Each cell: 4-byte left-child page, then varint key
+            uint32_t childPage = ((uint32_t)ptrs[0] << 24) |
+                                 ((uint32_t)ptrs[1] << 16) |
+                                 ((uint32_t)ptrs[2] << 8)  |
+                                  (uint32_t)ptrs[3];
+            ptrs += 4;
+            // Skip the key varint
+            while (*ptrs & 0x80) ptrs++;
+            ptrs++; // final byte of varint
+            
+            auto childCells = readLeafCells(childPage);
+            cells.insert(cells.end(), childCells.begin(), childCells.end());
+        }
+        // Right-most child pointer (last 4 bytes of page header)
+        uint32_t rightChild = ((uint32_t)btree[8] << 24) |
+                              ((uint32_t)btree[9] << 16) |
+                              ((uint32_t)btree[10] << 8) |
+                               (uint32_t)btree[11];
+        if (rightChild != 0) {
+            auto childCells = readLeafCells(rightChild);
+            cells.insert(cells.end(), childCells.begin(), childCells.end());
+        }
+        return cells;
+    }
+    
+    if (pageType != 0x0D) return cells; // not a leaf table page
 
-    // Cell pointer array starts at offset 8 (leaf page header is 8 bytes)
-    const uint8_t* ptrs = page + 8;
+    uint16_t numCells    = (btree[3] << 8) | btree[4];
+    uint16_t cellStart   = (btree[5] << 8) | btree[6];
+
+    // Cell pointer array starts at btree+8 (leaf page header is 8 bytes)
+    const uint8_t* ptrs = btree + 8;
 
     for (uint16_t i = 0; i < numCells; i++) {
         uint16_t cellOff = (ptrs[i*2] << 8) | ptrs[i*2 + 1];
-        if (cellOff >= m_pageSize) continue; // corrupt
+        // Cell offsets are relative to page start (byte 0), not btree start
+        if (cellOff + 4 > m_pageSize) continue;
 
         const uint8_t* cell = page + cellOff;
         const uint8_t* p = cell;
